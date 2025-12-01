@@ -399,14 +399,7 @@ static void send_double_cmd(sh1106_commands_t cmd, uint8_t follow_up) {
 }
 
 static void send_page(const uint8_t* page_data) {
-    uint8_t cmd_[128 * 2];
-
-    memset(cmd_, 0xC0, sizeof(cmd_));
-    for (uint16_t i = 1; i < 256; i += 2) {
-        cmd_[i] = page_data[i >> 1];
-    }
-
-    HAL_I2C_Master_Transmit(&hi2c2, SH1106_ADDRESS << 1, cmd_, sizeof(cmd_), 20);
+   HAL_I2C_Mem_Write(&hi2c2, SH1106_ADDRESS << 1, 0x40, 1, (uint8_t*)page_data, 128, 20);
 }
 
 static void draw_pixel(uint8_t x, uint8_t y) {
@@ -516,13 +509,13 @@ static void draw_vertical_line_base(uint8_t x, uint8_t y, uint8_t h) {
     switch (self.pixel_mode) {
     case SH1106_PSET:
         for (; h > 7; h -= 8) {
-            *ptr = 0x00;
+            *ptr = 0xFF;
             ptr += SCR_W;
         }
         break;
     case SH1106_PRES:
         for (; h > 7; h -= 8) {
-            *ptr = 0xFF;
+            *ptr = 0x00;
             ptr += SCR_W;
         }
         break;
@@ -558,6 +551,7 @@ static uint8_t print_char(uint8_t x, uint8_t y, char character, const font_t* fn
     const uint8_t* char_bmp;
     uint8_t x_limit;
     uint8_t y_limit;
+    uint8_t temp,i,j;
 
     if (character < fnt->min_char || character > fnt->max_char) {
         character = fnt->max_char;
@@ -565,47 +559,48 @@ static uint8_t print_char(uint8_t x, uint8_t y, char character, const font_t* fn
 
     switch (fnt->scan) {
     case FONT_V:
-        char_bmp = &fnt->characters[(character - fnt->min_char) * fnt->width];
-
-        /* Fonte não é maior que a página. */
-        if (fnt->height <= PAGE_HEIGHT) {
-            for (x_limit = x + fnt->width; x < x_limit; x++) {
-                draw_byte_v(y, x, *char_bmp);
-                char_bmp++;
-            }
-            break;
-        }
-
-        /* Fonte é maior que a página. */
-        for (x_limit = x + fnt->width; x < x_limit; x++) {
-            for (y_limit = y + fnt->height; y < y_limit; y += PAGE_HEIGHT) {
-                if (*char_bmp != 0) {
-                    draw_byte_v(y, x, *char_bmp);
+        char_bmp = &fnt->characters[((fnt->height + 7)>>3) * (character - fnt->min_char) \
+                                    * fnt->width];
+        for (x_limit = x + fnt->width; x < x_limit; x++){
+            temp = y;
+            i = 0;
+            for(j = fnt->height; j > 0 ; j--){
+                if (*char_bmp & (1<<i)){
+                    draw_pixel(x, temp);
                 }
-                char_bmp++;
+                temp++;
+                if(i<7){
+                    i++;
+                }
+                else if(j>1){
+                    i = 0;
+                    char_bmp++;
+                }
             }
+            char_bmp++;
         }
         break;
     case FONT_H:
-        char_bmp = &fnt->characters[(character - fnt->min_char) * fnt->height];
+        char_bmp = &fnt->characters[((fnt->width + 7)>>3) * (character - fnt->min_char) \
+                                    * fnt->height];
 
-        /* Fonte não é maior que a página. */
-        if (fnt->width <= PAGE_HEIGHT) {
-            for (y_limit = y + fnt->height; y < y_limit; y++) {
-                draw_byte_h(y, x, *char_bmp);
-                char_bmp++;
-            }
-            break;
-        }
-
-        /* Fonte é maior que a página. */
-        for (y_limit = y + fnt->height; y < y_limit; y++) {
-            for (x_limit = x + fnt->width; x < x_limit; x += PAGE_HEIGHT) {
-                if (*char_bmp != 0) {
-                    draw_byte_h(y, x, *char_bmp);
+        for (y_limit = y + fnt->height; y < y_limit; y++){
+            temp = x;
+            i = 0;
+            for(j = fnt->width; j > 0 ; j--){
+                if (*char_bmp & (1<<i)){
+                    draw_pixel(temp, y);
                 }
-                char_bmp++;
+                temp++;
+                if(i<7){
+                    i++;
+                }
+                else if(j>1){
+                    i = 0;
+                    char_bmp++;
+                }
             }
+            char_bmp++;
         }
         break;
     default:
